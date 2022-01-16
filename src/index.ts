@@ -1,4 +1,4 @@
-import {Client} from 'ldapjs';
+import {Client, createClient} from 'ldapjs';
 
 export interface StringMap {
   [key: string]: string;
@@ -27,6 +27,11 @@ export interface ClientOptions {
 export interface Config {
   options: ClientOptions;
   dn: string;
+}
+export interface Conf extends Config {
+  users?: string;
+  attributes?: string[];
+  map?: StringMap;
 }
 export type LDAPConfig = Config;
 export type LDAPConf = Config;
@@ -73,10 +78,21 @@ export interface Status {
   fail: number | string;
   success: number | string;
 }
+export function useLDAP<T extends User>(c: Conf, status: Status): (user: T) => Promise<Result> {
+  if (c.users && c.users.length > 0) {
+    const a = new MockAuthenticator<T>(c, status);
+    return a.authenticate;
+  } else {
+    const client = createClient(c.options);
+    const a = new Authenticator<T>(client, status, c.dn, c.attributes, c.map);
+    return a.authenticate;
+  }
+}
 export class Authenticator<T extends User> {
   map?: StringMap;
-  constructor(public client: Client, public status: Status, public dn: string, public options: ClientOptions, public attributes?: string[], m?: StringMap) {
+  constructor(public client: Client, public status: Status, public dn: string, public attributes?: string[], m?: StringMap) {
     this.map = m;
+    this.authenticate = this.authenticate.bind(this);
   }
   authenticate(user: T): Promise<Result> {
     const dn = this.dn.replace('%s', user.username);
@@ -142,4 +158,27 @@ export function map<T, R>(obj: T, m: StringMap): R {
     }
   }
   return obj2;
+}
+// tslint:disable-next-line:max-classes-per-file
+export class MockAuthenticator<T extends User> {
+  authenticator: Authenticator<T>;
+  users?: string[];
+  constructor(conf: Conf, public status: Status) {
+    const client = createClient(conf.options);
+    this.authenticator = new Authenticator<T>(client, status, conf.dn, conf.attributes, conf.map);
+    if (conf.users && conf.users.length > 0) {
+      this.users = conf.users.split(',');
+    }
+    this.authenticate = this.authenticate.bind(this);
+  }
+  authenticate(user: T): Promise<Result> {
+    if (this.users) {
+      for (const u of this.users) {
+        if (user.username === u) {
+          return Promise.resolve({status: this.status.success});
+        }
+      }
+    }
+    return this.authenticator.authenticate(user);
+  }
 }
