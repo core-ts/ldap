@@ -1,4 +1,4 @@
-import * as ldap from 'ldapjs';
+import {Client} from 'ldapjs';
 
 export interface StringMap {
   [key: string]: string;
@@ -24,6 +24,12 @@ export interface ClientOptions {
   bindDN?: string | undefined;
   bindCredentials?: string | undefined;
 }
+export interface Config {
+  options: ClientOptions;
+  dn: string;
+}
+export type LDAPConfig = Config;
+export type LDAPConf = Config;
 export interface User {
   username: string;
   password: string;
@@ -69,13 +75,12 @@ export interface Status {
 }
 export class Authenticator<T extends User> {
   map?: StringMap;
-  constructor(public status: Status, public dn: string, public options: ClientOptions, public attributes?: string[], m?: StringMap) {
+  constructor(public client: Client, public status: Status, public dn: string, public options: ClientOptions, public attributes?: string[], m?: StringMap) {
     this.map = m;
   }
   authenticate(user: T): Promise<Result> {
-    const client = ldap.createClient(this.options);
     const dn = this.dn.replace('%s', user.username);
-    return bind(client, dn, user.password, this.attributes, this.map).then(acc => {
+    return bind(this.client, dn, user.password, this.attributes, this.map).then(acc => {
       const keys = Object.keys(acc);
       if (keys.length > 0) {
         return {status : this.status.success, user: acc};
@@ -87,7 +92,8 @@ export class Authenticator<T extends User> {
     });
   }
 }
-export function bind(client: ldap.Client, dn: string, password: string, attributes?: string[], m?: StringMap): Promise<Account> {
+export const LDAPAuthenticator = Authenticator;
+export function bind(client: Client, dn: string, password: string, attributes?: string[], m?: StringMap): Promise<Account> {
   return new Promise<Account>((resolve, reject) => {
     client.bind(dn, password, (er0: any) => {
       if (er0) {
